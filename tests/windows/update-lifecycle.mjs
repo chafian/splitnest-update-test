@@ -25,6 +25,7 @@ if (!process.env.GITHUB_ACTIONS) {
   process.exit(2);
 }
 const oldVersion = oldTag.replace(/^v/, '');
+mkdirSync(path.dirname(path.resolve(resultsFile)), { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ps = (cmd) => {
   try {
@@ -158,5 +159,4 @@ try {
 }
 const failed = checks.filter((c) => !c.ok).length;
 console.log(failed ? `UPDATE LIFECYCLE FAILED: ${failed} of ${checks.length}` : `Update lifecycle: all ${checks.length} passed`);
-mkdirSync(path.dirname(path.resolve(resultsFile)), { recursive: true });
 process.exit(failed ? 1 : 0);
