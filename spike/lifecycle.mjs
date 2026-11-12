@@ -43,6 +43,8 @@ const snapshot = () => ({
   uninstallKey: json(`Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\splitnest' -ErrorAction SilentlyContinue | Select-Object DisplayName, DisplayVersion, Publisher, DisplayIcon, UninstallString`),
   processes: json(`Get-CimInstance Win32_Process -Filter "Name='splitnest.exe'" | ForEach-Object { $_.ExecutablePath.Replace($env:LOCALAPPDATA, '%LOCALAPPDATA%') } | Sort-Object -Unique`),
   userDataKept: existsSync(path.join(userData, 'keep-me.txt')),
+  activatorKey: json(`Test-Path 'HKCU:\Software\Classes\CLSID\{6F3B9C2E-4A1D-4E7B-9C58-2B7D1E0A9F43}'`),
+  notificationSettingsKey: json(`Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\com.squirrel.splitnest.splitnest'`),
 });
 const killApp = () => {
   try {
@@ -151,6 +153,8 @@ try {
     const r = spawnSync(updateExe, ['--uninstall', '-s'], { timeout: 180_000 });
     await sleep(8000);
     record('uninstalled', { exit: r.status, ...snapshot() });
+    await sleep(30_000);
+    record('30 s after uninstalling', snapshot());
   }
 } catch (e) {
   record('error', { message: String(e?.stack ?? e) });
