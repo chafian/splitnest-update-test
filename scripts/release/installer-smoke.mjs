@@ -98,7 +98,10 @@ try {
 } catch (e) {
   check('installer smoke test ran without error', false, String(e?.message ?? e));
 }
-if (resultsFile) writeFileSync(resultsFile, JSON.stringify(checks, null, 2));
+if (resultsFile) {
+  mkdirSync(path.dirname(path.resolve(resultsFile)), { recursive: true });
+  writeFileSync(resultsFile, JSON.stringify(checks, null, 2));
+}
 const failed = checks.filter((c) => !c.ok).length;
 console.log(failed ? `INSTALLER CHECK FAILED: ${failed} of ${checks.length}` : `Installer check: all ${checks.length} passed`);
 process.exit(failed ? 1 : 0);
