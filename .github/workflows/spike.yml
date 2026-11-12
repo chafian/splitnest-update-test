@@ -1,0 +1,101 @@
+# Phase 0 spike, for the throwaway repository chafian/splitnest-update-test only.
+# Builds SplitNest 0.1.0 (A) and 0.1.1 (B) with Squirrel, publishes them as test releases (plus a
+# test prerelease), and checks install, upgrade, uninstall and both update feeds on fresh runners.
+# Results are published as assets of the release "spike-results" (public download, no API needed).
+name: Spike (Squirrel + updates)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spike
+  cancel-in-progress: false
+
+jobs:
+  build-and-lifecycle:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.5
+          cache: npm
+      - run: npm ci
+      - name: Build A (0.1.0)
+        shell: pwsh
+        run: |
+          $env:TW_OUT_DIR = 'out-a'; npm run make
+          Get-ChildItem out-a/make -Recurse -File | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 300
+      - name: Build B (0.1.1)
+        shell: pwsh
+        run: |
+          npm version 0.1.1 --no-git-tag-version
+          $env:TW_OUT_DIR = 'out-b'; npm run make
+          Get-ChildItem out-b/make -Recurse -File | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 300
+      - name: Publish test releases (v0.1.0, v0.1.1, prerelease v0.1.2-beta.1)
+        shell: pwsh
+        run: |
+          foreach ($t in 'v0.1.2-beta.1', 'v0.1.1', 'v0.1.0') { gh release delete $t --yes --cleanup-tag -R $env:REPO 2>$null }
+          $a = 'out-a/make/squirrel.windows/x64'; $b = 'out-b/make/squirrel.windows/x64'
+          gh release create v0.1.0 -R $env:REPO --title 'test 0.1.0' --notes 'spike' "$a/SplitNest-win32-x64-Setup.exe" "$a/RELEASES" "$a/splitnest-0.1.0-full.nupkg"
+          Start-Sleep 5
+          gh release create v0.1.1 -R $env:REPO --title 'test 0.1.1' --notes 'spike' --latest "$b/SplitNest-win32-x64-Setup.exe" "$b/RELEASES" "$b/splitnest-0.1.1-full.nupkg"
+          Start-Sleep 5
+          gh release create v0.1.2-beta.1 -R $env:REPO --prerelease --title 'test prerelease' --notes 'spike' "$b/SplitNest-win32-x64-Setup.exe" "$b/RELEASES" "$b/splitnest-0.1.1-full.nupkg"
+      - name: Install, notify, upgrade (local feed), uninstall
+        run: node spike/lifecycle.mjs out-a/make/squirrel.windows/x64/SplitNest-win32-x64-Setup.exe out-b/make/squirrel.windows/x64 lifecycle.json
+      - name: Publish results
+        if: always()
+        shell: pwsh
+        run: |
+          gh release view spike-results -R $env:REPO 2>$null; if ($LASTEXITCODE -ne 0) { gh release create spike-results -R $env:REPO --prerelease --title 'spike results' --notes 'machine-readable results' }
+          if (Test-Path lifecycle.json) { gh release upload spike-results lifecycle.json --clobber -R $env:REPO }
+
+  remote-feeds:
+    needs: build-and-lifecycle
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Fetch the feeds and upgrade a fresh install of A through each one
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $out = [ordered]@{}
+          $svc = "https://update.electronjs.org/$env:REPO"
+          $gh = "https://github.com/$env:REPO/releases/latest/download"
+          foreach ($v in '0.1.0', '0.1.1') {
+            try { $r = Invoke-WebRequest "$svc/win32-x64/$v/RELEASES" -UseBasicParsing; $out["service RELEASES for $v"] = @{ status = $r.StatusCode; body = [Text.Encoding]::UTF8.GetString($r.Content) } }
+            catch { $out["service RELEASES for $v"] = @{ error = "$($_.Exception.Message)" } }
+          }
+          try { $r = Invoke-WebRequest "$gh/RELEASES" -UseBasicParsing; $out['github latest RELEASES'] = @{ status = $r.StatusCode; body = [Text.Encoding]::UTF8.GetString($r.Content) } } catch { $out['github latest RELEASES'] = @{ error = "$($_.Exception.Message)" } }
+          $setup = "$env:RUNNER_TEMP\SplitNest-win32-x64-Setup.exe"
+          Invoke-WebRequest "https://github.com/$env:REPO/releases/download/v0.1.0/SplitNest-win32-x64-Setup.exe" -OutFile $setup -UseBasicParsing
+          $inst = "$env:LOCALAPPDATA\splitnest"
+          foreach ($feed in @("$svc/win32-x64/0.1.0", $gh)) {
+            Start-Process $setup -ArgumentList '--silent' -Wait
+            Start-Sleep 12
+            Stop-Process -Name splitnest -Force -ErrorAction SilentlyContinue
+            $before = @(Get-ChildItem $inst -Directory -Filter 'app-*' | ForEach-Object Name)
+            $p = Start-Process "$inst\Update.exe" -ArgumentList '--update', $feed -Wait -PassThru -NoNewWindow
+            Start-Sleep 3
+            $after = @(Get-ChildItem $inst -Directory -Filter 'app-*' | ForEach-Object Name)
+            $out["upgrade via $feed"] = @{ exit = $p.ExitCode; before = $before; after = $after }
+            Start-Process "$inst\Update.exe" -ArgumentList '--uninstall', '-s' -Wait
+            Start-Sleep 8
+            Remove-Item $inst -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          $out | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 feeds.json
+          Get-Content feeds.json
+          gh release upload spike-results feeds.json --clobber -R $env:REPO
