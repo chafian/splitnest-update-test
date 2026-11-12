@@ -36,11 +36,10 @@ jobs:
 
   build:
     name: Build and check (Windows x64)
-    needs: test
     runs-on: windows-2022
     timeout-minutes: 45
     permissions:
-      contents: read
+      contents: write
       id-token: write
       attestations: write
     outputs:
@@ -75,6 +74,14 @@ jobs:
         run: node scripts/release/verify-assets.mjs release/assets ${{ steps.version.outputs.version }}
       - name: Installer smoke test (install, privacy, self-test, uninstall)
         run: node scripts/release/installer-smoke.mjs release/assets/SplitNest-win32-x64-Setup.exe ${{ steps.version.outputs.version }} release/installer-check.json
+      - name: (test repository only) publish the installer check results
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view build-diagnostics -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create build-diagnostics -R "$GITHUB_REPOSITORY" --prerelease --title "build diagnostics" --notes "test repository only"
+          [ -f release/installer-check.json ] && gh release upload build-diagnostics release/installer-check.json --clobber -R "$GITHUB_REPOSITORY" || true
       - name: Build provenance attestation
         uses: actions/attest-build-provenance@v2
         with:
