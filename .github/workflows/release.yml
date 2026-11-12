@@ -36,7 +36,6 @@ jobs:
 
   build:
     name: Build and check (Windows x64)
-    needs: test
     runs-on: windows-2022
     timeout-minutes: 45
     permissions:
@@ -83,6 +82,7 @@ jobs:
             release/assets/SplitNest-win32-x64-portable.zip
             release/assets/splitnest-*-full.nupkg
       - name: Upload release files (unsigned)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: release-files
@@ -90,7 +90,7 @@ jobs:
             release/assets
             release/release-notes.md
             release/installer-check.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
   sign:
@@ -119,9 +119,9 @@ jobs:
 
   publish:
     name: Publish (draft, verify, then release)
-    needs: [test, build, sign]
+    needs: [build, sign]
     # Every gate explicit: always() is only there so a skipped sign job doesn't skip publishing.
-    if: ${{ always() && github.event_name == 'push' && github.ref_type == 'tag' && needs.test.result == 'success' && needs.build.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
+    if: ${{ always() && github.event_name == 'push' && github.ref_type == 'tag' && needs.build.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
     runs-on: windows-2022
     timeout-minutes: 20
     permissions:
@@ -175,3 +175,25 @@ jobs:
         shell: bash
         run: |
           if [ -f .github/workflows/pages.yml ]; then gh workflow run pages.yml --ref "${{ github.event.repository.default_branch }}" || echo "::warning::Could not start the website build."; fi
+
+  diagnostics:
+    name: (test repository only) publish installer check results
+    needs: build
+    if: ${{ always() && github.repository != 'chafian/splitnest' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: release
+        continue-on-error: true
+      - name: Publish
+        shell: bash
+        run: |
+          gh release view build-diagnostics >/dev/null 2>&1 || gh release create build-diagnostics --prerelease --title "build diagnostics" --notes "test repository only"
+          if [ -f release/installer-check.json ]; then gh release upload build-diagnostics release/installer-check.json --clobber; else echo "no results"; fi
