@@ -18,9 +18,14 @@ const record = (name, data) => {
   writeFileSync(resultsFile, JSON.stringify(results, null, 2));
 };
 const ps = (cmd) => execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8', maxBuffer: 32 << 20 }).trim();
+// Missing things (no key yet, no shortcut) are null, not errors.
 const json = (cmd) => {
-  const out = ps(`${cmd} | ConvertTo-Json -Depth 4 -Compress`);
-  return out ? JSON.parse(out) : null;
+  try {
+    const out = ps(`$ErrorActionPreference = 'SilentlyContinue'; ${cmd} | ConvertTo-Json -Depth 4 -Compress`);
+    return out ? JSON.parse(out) : null;
+  } catch (e) {
+    return { error: String(e?.message ?? e).slice(0, 200) };
+  }
 };
 const local = process.env.LOCALAPPDATA;
 const roaming = process.env.APPDATA;
@@ -53,8 +58,13 @@ const selfTest = (exe) => {
   const res = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null;
   return { exit: r.status, ok: res?.ok ?? false };
 };
-const historyCount = (aumid) =>
-  Number(ps(`$null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]; @([Windows.UI.Notifications.ToastNotificationManager]::History.GetHistory('${aumid}')).Count`));
+const historyCount = (aumid) => {
+  try {
+    return Number(ps(`$null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]; @([Windows.UI.Notifications.ToastNotificationManager]::History.GetHistory('${aumid}')).Count`));
+  } catch {
+    return -1;
+  }
+};
 
 try {
   // Existing user data must survive install, update and uninstall.
