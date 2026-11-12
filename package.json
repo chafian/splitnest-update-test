@@ -1,7 +1,7 @@
 {
   "name": "splitnest",
   "productName": "SplitNest",
-  "version": "0.1.0",
+  "version": "0.1.5-beta.1",
   "description": "Desktop terminal workspace: project folders, real PowerShell/WSL terminals, split panes.",
   "main": ".vite/build/main.js",
   "private": true,
