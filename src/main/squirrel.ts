@@ -93,7 +93,8 @@ export function handleSquirrelEvent(argv: readonly string[], execPath: string): 
       /* absent or not empty */
     }
     if (plan.write) {
-      shell.writeShortcutLink(plan.write.shortcut, 'replace', {
+      // 'replace' fails when the entry doesn't exist yet (a fresh install), so create it then.
+      shell.writeShortcutLink(plan.write.shortcut, existsSync(plan.write.shortcut) ? 'replace' : 'create', {
         target: plan.write.target,
         cwd: path.dirname(plan.write.target),
         icon: plan.write.target,
