@@ -1,0 +1,36 @@
+# Test repository only: installs the OFFICIAL published release's installer on a clean runner.
+name: Published installer smoke test
+on:
+  push:
+    branches: ['smoke/**']
+permissions: {}
+jobs:
+  smoke:
+    if: ${{ github.repository != 'chafian/splitnest' }}
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download the official installer and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir pub && cd pub
+          curl -sSfLO https://github.com/chafian/splitnest/releases/download/v0.3.0/SplitNest-win32-x64-Setup.exe
+          curl -sSfLO https://github.com/chafian/splitnest/releases/download/v0.3.0/SHA256SUMS.txt
+          grep ' SplitNest-win32-x64-Setup.exe$' SHA256SUMS.txt | sha256sum -c -
+      - name: Install, check, uninstall
+        run: node scripts/release/installer-smoke.mjs pub/SplitNest-win32-x64-Setup.exe 0.3.0 results/published-smoke.json
+      - name: Publish the results
+        if: always()
+        shell: bash
+        run: |
+          gh release view published-smoke-results >/dev/null 2>&1 || gh release create published-smoke-results --prerelease --title "published installer smoke results" --notes "test repository only"
+          if [ -f results/published-smoke.json ]; then gh release upload published-smoke-results results/published-smoke.json --clobber; fi
